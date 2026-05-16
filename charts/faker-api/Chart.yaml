@@ -2,5 +2,5 @@ apiVersion: v2
 name: faker-api
 description: A simple Helm chart for faker-api
 type: application
-version: 0.1.1
-appVersion: "1.0.0"
+version: 0.1.2
+appVersion: "v1.0.0"
