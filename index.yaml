@@ -2,6 +2,16 @@ apiVersion: v1
 entries:
   faker-api:
   - apiVersion: v2
+    appVersion: v1.0.0
+    created: "2026-05-16T18:26:21.61996475Z"
+    description: A simple Helm chart for faker-api
+    digest: 2de0bbaa4fd3c2598c4fe190424c8511e3cf3e4e5c6552210024663771a0a883
+    name: faker-api
+    type: application
+    urls:
+    - https://github.com/sraisl/helm-charts/releases/download/faker-api-0.1.2/faker-api-0.1.2.tgz
+    version: 0.1.2
+  - apiVersion: v2
     appVersion: 1.0.0
     created: "2026-05-16T18:13:52.661140524Z"
     description: A simple Helm chart for faker-api
@@ -11,4 +21,4 @@ entries:
     urls:
     - https://github.com/sraisl/helm-charts/releases/download/faker-api-0.1.1/faker-api-0.1.1.tgz
     version: 0.1.1
-generated: "2026-05-16T18:13:52.6611446Z"
+generated: "2026-05-16T18:26:21.619976913Z"
