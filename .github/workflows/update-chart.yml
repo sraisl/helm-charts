@@ -1,0 +1,129 @@
+name: Update Helm Chart
+
+on:
+  workflow_dispatch:
+    inputs:
+      chart:
+        description: Chart directory name below charts/
+        required: true
+        type: string
+      app_version:
+        description: Application image tag to set as Chart appVersion
+        required: true
+        type: string
+      chart_version:
+        description: Optional explicit Helm chart version. Defaults to patch bump.
+        required: false
+        type: string
+
+jobs:
+  update-chart:
+    permissions:
+      contents: write
+      pull-requests: write
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Prepare chart update
+        id: chart
+        env:
+          CHART: ${{ inputs.chart }}
+          APP_VERSION: ${{ inputs.app_version }}
+          CHART_VERSION: ${{ inputs.chart_version }}
+        run: |
+          python3 <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          chart = os.environ["CHART"]
+          app_version = os.environ["APP_VERSION"]
+          requested_chart_version = os.environ.get("CHART_VERSION", "").strip()
+
+          if not re.fullmatch(r"[A-Za-z0-9._-]+", chart):
+              raise SystemExit(f"Invalid chart name: {chart}")
+
+          if not app_version or any(c in app_version for c in "\r\n"):
+              raise SystemExit("app_version must be a non-empty single-line value")
+
+          chart_yaml = Path("charts") / chart / "Chart.yaml"
+          if not chart_yaml.exists():
+              raise SystemExit(f"Chart not found: {chart_yaml}")
+
+          text = chart_yaml.read_text()
+          name_match = re.search(r"^name:\s*(\S+)\s*$", text, re.MULTILINE)
+          if not name_match or name_match.group(1) != chart:
+              raise SystemExit(f"{chart_yaml} name does not match input chart '{chart}'")
+
+          version_match = re.search(r"^version:\s*([0-9A-Za-z.+-]+)\s*$", text, re.MULTILINE)
+          app_version_match = re.search(r'^appVersion:\s*"?([^"\n]+)"?\s*$', text, re.MULTILINE)
+          if not version_match or not app_version_match:
+              raise SystemExit(f"{chart_yaml} must contain version and appVersion")
+
+          current_version = version_match.group(1)
+          current_app_version = app_version_match.group(1)
+
+          semver = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)(?:[-+][0-9A-Za-z.-]+)?", current_version)
+          if not semver:
+              raise SystemExit(f"Current chart version is not SemVer-compatible: {current_version}")
+
+          if requested_chart_version:
+              if not re.fullmatch(r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?", requested_chart_version):
+                  raise SystemExit(f"Requested chart_version is not SemVer-compatible: {requested_chart_version}")
+              next_version = requested_chart_version
+          elif current_app_version == app_version:
+              with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+                  output.write("changed=false\n")
+              print(f"{chart} already has appVersion {app_version}; nothing to update.")
+              raise SystemExit(0)
+          else:
+              major, minor, patch = map(int, semver.groups())
+              next_version = f"{major}.{minor}.{patch + 1}"
+
+          text = re.sub(r"^version:\s*[0-9A-Za-z.+-]+\s*$", f"version: {next_version}", text, count=1, flags=re.MULTILINE)
+          text = re.sub(r'^appVersion:\s*"?[^"\n]+"?\s*$', f'appVersion: "{app_version}"', text, count=1, flags=re.MULTILINE)
+          chart_yaml.write_text(text)
+
+          safe_version = re.sub(r"[^A-Za-z0-9._-]+", "-", app_version).strip("-")[:80]
+          branch = f"update/{chart}-{safe_version}"
+          title = f"Update {chart} to {app_version}"
+          body = f"Updates `{chart}` to app version `{app_version}` and bumps the Helm chart version to `{next_version}`."
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write("changed=true\n")
+              output.write(f"branch={branch}\n")
+              output.write(f"title={title}\n")
+              output.write(f"body={body}\n")
+          PY
+
+      - name: Install Helm
+        if: steps.chart.outputs.changed == 'true'
+        uses: azure/setup-helm@v5
+        env:
+          GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+
+      - name: Lint chart
+        if: steps.chart.outputs.changed == 'true'
+        run: helm lint "charts/${{ inputs.chart }}"
+
+      - name: Create pull request
+        if: steps.chart.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: ${{ steps.chart.outputs.branch }}
+          TITLE: ${{ steps.chart.outputs.title }}
+          BODY: ${{ steps.chart.outputs.body }}
+        run: |
+          git config user.name "$GITHUB_ACTOR"
+          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
+          git switch -c "$BRANCH"
+          git add "charts/${{ inputs.chart }}/Chart.yaml"
+          git commit -m "$TITLE"
+          git push --force-with-lease origin "$BRANCH"
+          gh pr create --base main --head "$BRANCH" --title "$TITLE" --body "$BODY"

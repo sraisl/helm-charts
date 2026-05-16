@@ -3,7 +3,7 @@ replicaCount: 1
 image:
   repository: ghcr.io/sraisl/faker-api
   pullPolicy: IfNotPresent
-  tag: latest
+  tag: ""
 
 service:
   type: ClusterIP
